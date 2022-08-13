@@ -1,0 +1,513 @@
+---
+title: "Week3_NYPD_Shooting_Incident_Data"
+author: "Michael Lee"
+date: "2022-07-16"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description
+
+Data Place: [data.gov](https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD)
+
+## Activate libraries
+
+```{r importing_libraries}
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+```
+
+## Importing Data
+
+First I grab the data and store it locally in a variable.
+
+```{r importing_data}
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+raw_data <- readr::read_csv(url)
+```
+
+## Tidying Up the Data
+
+Then I isolate into two variables:
+1. Murder Data from minors.
+1. Murder Data from adults.
+
+```{r tidy_data}
+# Murder only
+minors_data <- raw_data %>%
+    # Isolate Murders committed by Perps less than 18 years old
+    filter(
+        STATISTICAL_MURDER_FLAG == "TRUE" &
+        PERP_AGE_GROUP == "<18"
+    ) %>%
+    # Remove Unwanted Columns
+    select(
+        -c(
+            INCIDENT_KEY,
+            PRECINCT,
+            JURISDICTION_CODE,
+            STATISTICAL_MURDER_FLAG,
+            PERP_AGE_GROUP,
+            X_COORD_CD,
+            Y_COORD_CD,
+            Latitude,
+            Longitude,
+            Lon_Lat
+        )
+    ) %>%
+    # Change dates to Date Object - track time by hour of day
+    mutate(
+        Place   = LOCATION_DESC,
+        Year    = year(mdy(OCCUR_DATE)),
+        Month   = month(mdy(OCCUR_DATE)),
+        Date    = floor_date(mdy(OCCUR_DATE), unit = "month"),
+        Time    = hour(hms(OCCUR_TIME)),
+        Victims = VIC_AGE_GROUP
+    )
+
+# Murder only
+adults_data <- raw_data %>%
+    # Isolate Murders committed by Perps who are adults
+    filter(
+        STATISTICAL_MURDER_FLAG == "TRUE" &
+        PERP_AGE_GROUP != "<18"
+    ) %>%
+    # Remove Unwanted Columns
+    select(
+        -c(
+            INCIDENT_KEY,
+            PRECINCT,
+            JURISDICTION_CODE,
+            STATISTICAL_MURDER_FLAG,
+            X_COORD_CD,
+            Y_COORD_CD,
+            Latitude,
+            Longitude,
+            Lon_Lat
+        )
+    ) %>%
+    # Change dates to Date Object - track time by hour of day
+    mutate(
+        Place   = LOCATION_DESC,
+        Year    = year(mdy(OCCUR_DATE)),
+        Month   = month(mdy(OCCUR_DATE)),
+        Date    = floor_date(mdy(OCCUR_DATE), unit = "month"),
+        Time    = hour(hms(OCCUR_TIME)),
+        Victims = VIC_AGE_GROUP
+    )
+```
+
+Now I try to see if there are any correlations to how minors and adults behave when it comes to committing murders through guns.
+
+I will isolate the locations, time of day, trends throughout the year and if there are any improvements throughout the historical data.
+
+## Visualizing Data
+
+#### Places
+
+```{r places, echo = FALSE}
+
+# Places where murders by minors happen
+mplace <- minors_data %>%
+    select(
+        Place,
+        Year,
+        Month,
+        Date,
+        Time,
+        Victims
+    )
+
+mplace$Place[mplace$Place == "MULTI DWELL - PUBLIC HOUS"] <- "Housing Pub"
+mplace$Place[mplace$Place == "MULTI DWELL - APT BUILD"]   <- "Housing Apt"
+mplace$Place[mplace$Place == "PVT HOUSE"]                 <- "Housing Pvt"
+mplace$Place[mplace$Place == "SUPERMARKET"]               <- "Grocery"
+mplace$Place[mplace$Place == "GROCERY/BODEGA"]            <- "Grocery"
+mplace$Place[mplace$Place == "LIQUOR STORE"]              <- "Grocery"
+mplace$Place[mplace$Place == "FAST FOOD"]                 <- "Restaurant"
+mplace$Place[mplace$Place == "FAST FOOD"]                 <- "Restaurant"
+mplace$Place[mplace$Place == "RESTAURANT/DINER"]          <- "Restaurant"
+mplace$Place[mplace$Place == "GYM/FITNESS FACILITY"]      <- "Gym Facility"
+mplace$Place[mplace$Place == "HOSPITAL"]                  <- "Commercial"
+mplace$Place[mplace$Place == "HOTEL/MOTEL"]               <- "Commercial"
+mplace$Place[mplace$Place == "COMMERCIAL BLDG"]           <- "Commercial"
+mplace$Place[mplace$Place == "FACTORY/WAREHOUSE"]         <- "Commercial"
+mplace$Place[mplace$Place == "BAR/NIGHT CLUB"]            <- "Commercial"
+mplace$Place[mplace$Place == "SOCIAL CLUB/POLICY LOCATI"] <- "Commercial"
+mplace$Place[mplace$Place == "LOAN COMPANY"]              <- "Financial"
+mplace$Place[mplace$Place == "CHECK CASH"]                <- "Financial"
+mplace$Place[mplace$Place == "BEAUTY/NAIL SALON"]         <- "Store"
+mplace$Place[mplace$Place == "JEWELRY STORE"]             <- "Store"
+mplace$Place[mplace$Place == "SMALL MERCHANT"]            <- "Store"
+mplace$Place[mplace$Place == "GAS STATION"]               <- "Store"
+mplace$Place[mplace$Place == "CHAIN STORE"]               <- "Store"
+mplace$Place[mplace$Place == "STORE UNCLASSIFIED"]        <- "Store"
+mplace$Place[mplace$Place == "VARIETY STORE"]             <- "Store"
+mplace$Place[mplace$Place == "TELECOMM. STORE"]           <- "Store"
+mplace$Place[mplace$Place == "LIQUOR STORE"]              <- "Store"
+mplace$Place[mplace$Place == "DRUG STORE"]                <- "Store"
+mplace$Place[mplace$Place == "DEPT STORE"]                <- "Store"
+mplace$Place[mplace$Place == "CLOTHING BOUTIQUE"]         <- "Store"
+mplace$Place[mplace$Place == "SHOE STORE"]                <- "Store"
+
+# Where are the Murders happening for minors
+barplot(
+    table(mplace$Place),
+    ylim = c(0, 50),
+    las = 2,
+    cex.names = 0.75,
+    main = "Figure 1: Where Murders Occurred Committed by Minors"
+)
+
+# Places where murders by adults happen
+rplace <- adults_data %>%
+    select(
+        Place,
+        Year,
+        Month,
+        Date,
+        Time,
+        Victims
+    )
+
+rplace$Place[rplace$Place == "MULTI DWELL - PUBLIC HOUS"] <- "Housing Pub"
+rplace$Place[rplace$Place == "MULTI DWELL - APT BUILD"]   <- "Housing Apt"
+rplace$Place[rplace$Place == "PVT HOUSE"]                 <- "Housing Pvt"
+rplace$Place[rplace$Place == "SUPERMARKET"]               <- "Grocery"
+rplace$Place[rplace$Place == "GROCERY/BODEGA"]            <- "Grocery"
+rplace$Place[rplace$Place == "LIQUOR STORE"]              <- "Grocery"
+rplace$Place[rplace$Place == "FAST FOOD"]                 <- "Restaurant"
+rplace$Place[rplace$Place == "FAST FOOD"]                 <- "Restaurant"
+rplace$Place[rplace$Place == "RESTAURANT/DINER"]          <- "Restaurant"
+rplace$Place[rplace$Place == "GYM/FITNESS FACILITY"]      <- "Gym Facility"
+rplace$Place[rplace$Place == "HOSPITAL"]                  <- "Commercial"
+rplace$Place[rplace$Place == "HOTEL/MOTEL"]               <- "Commercial"
+rplace$Place[rplace$Place == "COMMERCIAL BLDG"]           <- "Commercial"
+rplace$Place[rplace$Place == "FACTORY/WAREHOUSE"]         <- "Commercial"
+rplace$Place[rplace$Place == "BAR/NIGHT CLUB"]            <- "Commercial"
+rplace$Place[rplace$Place == "SOCIAL CLUB/POLICY LOCATI"] <- "Commercial"
+rplace$Place[rplace$Place == "LOAN COMPANY"]              <- "Financial"
+rplace$Place[rplace$Place == "CHECK CASH"]                <- "Financial"
+rplace$Place[rplace$Place == "BEAUTY/NAIL SALON"]         <- "Store"
+rplace$Place[rplace$Place == "JEWELRY STORE"]             <- "Store"
+rplace$Place[rplace$Place == "SMALL MERCHANT"]            <- "Store"
+rplace$Place[rplace$Place == "GAS STATION"]               <- "Store"
+rplace$Place[rplace$Place == "CHAIN STORE"]               <- "Store"
+rplace$Place[rplace$Place == "STORE UNCLASSIFIED"]        <- "Store"
+rplace$Place[rplace$Place == "VARIETY STORE"]             <- "Store"
+rplace$Place[rplace$Place == "TELECOMM. STORE"]           <- "Store"
+rplace$Place[rplace$Place == "LIQUOR STORE"]              <- "Store"
+rplace$Place[rplace$Place == "DRUG STORE"]                <- "Store"
+rplace$Place[rplace$Place == "DEPT STORE"]                <- "Store"
+rplace$Place[rplace$Place == "CLOTHING BOUTIQUE"]         <- "Store"
+rplace$Place[rplace$Place == "SHOE STORE"]                <- "Store"
+
+# When are the Murders happening for adults
+barplot(
+    table(rplace$Place),
+    ylim = c(0, 500),
+    las = 2,
+    cex.names = 0.75,
+    main = "Figure 2: Where Murders Occurred Committed by Adults"
+)
+
+# rplace <- rplace %>% filter(
+#     Place == "Housing Pub" |
+#     Place == "Housing Apt" |
+#     Place == "Housing Pvt"
+# )
+```
+
+It is apparent that Miniors and Adults have similar targets of locations when committing murders by gun. The main difference is that adults have more targets by proportion at the commercial buildings.
+
+What is remarkable is that housing areas are significantly higher in locations for both minors and adults. Single Private Housing is generally much safer by loosely 20%. This might indicate that New York City should invest in maintaining more space for lower density housing.
+
+### Who are they killing
+
+Next I will investigate which groups they are murdering.
+
+```{r victims, echo = FALSE}
+
+barplot(
+    table(mplace$Victims),
+    ylim = c(0, 125),
+    xlab = "Age Groups",
+    ylab = "Frequency",
+    main = "Figure 3: Age Groups of Murders from Minors"
+)
+
+barplot(
+    table(rplace$Victims),
+    ylim = c(0, 1500),
+    xlab = "Age Groups",
+    ylab = "Frequency",
+    main = "Figure 4: Age Groups of Murders from Adults"
+)
+
+barplot(
+    table(adults_data$PERP_AGE_GROUP),
+    ylim = c(0, 1500),
+    xlab = "Age Groups",
+    ylab = "Frequency",
+    main = "Figure 5: Age Groups of Adults who Murder"
+)
+
+
+```
+
+Unsurprisingly, adults will murder those who are around the same age. This correlates with the data as shown earlier in the class where people in the US tend to be around others with the same age.
+
+Also Unsurprisingly, kids are shooting at people not much older than them.
+
+It appears if you are in New York City, you have the greatest chance of death if you are between the age of 18 and 44. That is most alarming considering that most of the working population are adults in this range. In other words, if you have graduated High School or are of working age, then you have the greatest chance of death.
+
+### Time
+
+Next I will investigate at what times these murders occur.
+
+```{r times, echo = FALSE}
+
+mtimes <- table(mplace$Time)
+mtimes <- data.frame(mtimes) %>%
+    mutate(Month = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+rtimes <- table(rplace$Time)
+rtimes <- data.frame(rtimes) %>%
+    mutate(Month = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+
+plot(
+    mtimes$Frequency,
+    col  = "blue",
+    type = "o",
+    cex.axis = 0.75,
+    xlab = "Time of Day",
+    ylim = c(0, 50),
+    ylab = "Frequency of Murders per Hour",
+    main = "Figure 6: When are the Murders Happening"
+)
+par(new = TRUE)
+
+plot(
+    rtimes$Frequency,
+    col  = "red",
+    ylim = c(0, 250),
+    type = "b",
+    axes = FALSE,
+    xlab = "",
+    ylab = ""
+)
+mtext(
+    "Frequency of Murders from Adults",
+    side = 4,
+    col = "red",
+    line = 4
+)
+axis(
+    4,
+    ylim = c(0, 250),
+    col = "red",
+    cex.axis = 0.75,
+    col.axis = "red",
+    las = 1
+)
+legend(
+    "topleft",
+    legend = c("Minors", "Adults"),
+    text.col = c("blue", "red"),
+    pch = c(16, 16),
+    col = c("blue", "red")
+)
+par(new = FALSE)
+```
+
+Correlation shows as below:
+
+```{r times_correlation, echo=TRUE}
+maths <- cor(mtimes$Frequency, rtimes$Frequency, method = "spearman")
+summary(maths)
+```
+
+Note that it gets about a 0.83, which is a positive relationship. This is not entirely accurate as spearman correlation relies on a curvilinear monotonic relationship.
+
+The graph shows that it might be better to use a nonmonotonic regression cureve, which I do not know how to do at the time of this analysis.
+
+An observation is that kids in New York City do not normally commit murders around school hours. Immediately at 14:00-15:00hrs there is a large spike in crime, which is right out of school.
+
+Both adults and minors commit more crime as the time progresses into the evening.
+
+It is truly unsafe to be outside after dinner time, especially into the midnight.
+
+### By Months throught the Year
+
+```{r months, echo = FALSE}
+
+mmonths <- table(mplace$Month)
+mmonths <- data.frame(mmonths) %>%
+    mutate(Hour = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+rmonths <- table(rplace$Month)
+rmonths <- data.frame(rmonths) %>%
+    mutate(Hour = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+
+plot(
+    mmonths$Frequency,
+    col  = "blue",
+    type = "o",
+    cex.axis = 0.75,
+    xlab = "Month of Year",
+    ylim = c(0, 40),
+    ylab = "Frequency of Murders per Month",
+    main = "Figure 7: When are the Murders Happening by Months"
+)
+par(new = TRUE)
+
+plot(
+    rmonths$Frequency,
+    col  = "red",
+    ylim = c(0, 400),
+    type = "b",
+    axes = FALSE,
+    xlab = "",
+    ylab = ""
+)
+mtext(
+    "Frequency of Murders from Adults",
+    side = 4,
+    col = "red",
+    line = 4
+)
+axis(
+    4,
+    ylim = c(0, 400),
+    col = "red",
+    cex.axis = 0.75,
+    col.axis = "red",
+    las = 1
+)
+legend(
+    "topleft",
+    legend = c("Minors", "Adults"),
+    text.col = c("blue", "red"),
+    pch = c(16, 16),
+    col = c("blue", "red")
+)
+par(new = FALSE)
+```
+
+General trends look like they overlap, being lower in the winter and spring than in summer and fall. This might be weather related as New York City is known to be extremely cold during the winter and spring, so not as many people are venturing outside anyways.
+
+There is a slight deviation. Minors have a sudden drop in the month of June (6).
+
+This might be because New York City schools end session and start summer vacation in June.
+
+Here is one example (2021-2022): [schools.nyc.gov](https://www.schools.nyc.gov/about-us/news/2021-2022-school-year-calendar)
+
+Generally minors are much happier when school ends. Further research is required to determine if that is the cause of the dip. If it is the cause of the dip, then New York City should look into offering more fun and engaging programs for minors. Otherwise, they might resort to crime.
+
+A way to look into this is through using the Happiness index.
+
+### Any Improvments Across the Years
+
+```{r years, echo = FALSE}
+
+
+myears <- table(mplace$Year)
+myears <- data.frame(myears) %>%
+    mutate(Year = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+ryears <- table(rplace$Year)
+ryears <- data.frame(ryears) %>%
+    mutate(Year = Var1, Frequency = Freq) %>%
+    select(-c(Var1, Freq))
+
+plot(
+    myears$Frequency,
+    col  = "blue",
+    type = "o",
+    cex.axis = 0.75,
+    xaxt = "n",
+    xlab = "Year",
+    ylim = c(0, 40),
+    ylab = "Frequency of Murders per Year",
+    main = "Figure 8: Are Murders by Gun Improving or Getting Worse"
+)
+axis(
+    1,
+    at = seq(1, 16, by = 1),
+    labels = c(seq(2006, 2021))
+)
+par(new = TRUE)
+
+plot(
+    ryears$Frequency,
+    col  = "red",
+    ylim = c(0, 400),
+    type = "b",
+    axes = FALSE,
+    xlab = "",
+    ylab = ""
+)
+mtext(
+    "Frequency of Murders from Adults",
+    side = 4,
+    col = "red",
+    line = 4
+)
+axis(
+    4,
+    ylim = c(0, 400),
+    col = "red",
+    cex.axis = 0.75,
+    col.axis = "red",
+    las = 1
+)
+legend(
+    "topleft",
+    legend = c("Minors", "Adults"),
+    text.col = c("blue", "red"),
+    pch = c(16, 16),
+    col = c("blue", "red")
+)
+par(new = FALSE)
+```
+
+Correlation shows as below:
+
+```{r years_correlation, echo=TRUE}
+maths <- cor(myears$Frequency, ryears$Frequency, method = "spearman")
+summary(maths)
+```
+
+Here one can see that there was an overall improvement in the number of murders.
+
+Whichever factors contributed to the decline was indeed similar in effect to that of Minors as it was for Adults.
+
+It appears to have a sharp increase however, by the year of 2020 and only continues in an upwards trajectory, which is quite alarming. One might guess that it was due to the event of George Floyd as nation wide riots broke out. Further analysis is needed for this conclusion.
+
+# Analysis
+
+I will use the terms "Shootings" to indicate non-murder shootings, and "Murders" to indicate murder shootings.
+
+Being in school might have a direct positive impact in reducing the number of murders committed by minors. It forces minors to act more productively in an enviroment away from home, which is generally not a safe place to be according to (Figure 1) and (Figure 2). Hard work requires recess, which might explain the stark decline in the number of murders committed by minors in the month of June (Figure 7). If one were to target getting minors out of the hands of gun crimme, then there might be solutions related to more fun education. However, the biggest impact might actually be in targetting adults.
+
+In general, it is quite alarming to see that Minors are mirroring the Adults' behaviors. Environmental factors aside, this might stress the importance of targetting adults as a means of remediating crime rather than targeting kids directly.
+
+One may notice that high density "Housing" areas like Public and Apartments are quite dangerous. THough private single houses are relatively more dangerous than other areas in New York City, it is still loosely 20% safer than other forms of housing.
+
+This would indicate several factors. There is no safe place during the night for the under-privilege (Figure 6) as crime increases in the afternoon and housing areas are dangerous. This would most certainly negatively affect the psychological states of the people who live there because "home" instinctually supposed to be a safe place.
+
+And, unfortunately by (Figure 8), murders are on the rise post 2019. If we hope to reduce murders in New York City, one might suggest targetting adults in the housing areas as the primary concern.
+
+# Biases
+
+There are many sources of biases that have to be investigated. Even when it comes to the collection of the data. One cannot know how thorough the collection is and without the analysis of the coordinates, one cannot determine if there is a bias in the locations of where the reports are being made.
+
+I have my own personal view points on guns amongst minors and the role of school in curbing violence. I have identified a possible explanation of why a drop in gun related crimes between 6:00-15:00 might occur but openly admit that without more data it is mere speculation. In addition I had shown that the correlations have quite a lot of variance, indicating that there are many factors contributing to the scenario.
