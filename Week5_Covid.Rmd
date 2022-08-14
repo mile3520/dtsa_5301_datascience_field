@@ -1,0 +1,362 @@
+---
+title: "Week5_COVID19_Report"
+author: "Michael Lee"
+date: "2022-08-13"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description
+
+Data Place: [From Lecture Week 3 - Importing Data](https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series)
+
+COVID-19 data as reported from John Hopkins public repository. This contains a series of data at the global scale. As well as an in-depth breakdown of cases and deaths within the United States.
+
+## Activate libraries
+
+```{r importing_libraries, echo = FALSE}
+library(stringr)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+
+## Importing Data
+
+First I grab the data and store it locally in a variable.
+
+```{r importing_data, echo = FALSE}
+# Parsing in data as used from Week 3 - Importing data lecture
+url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c(
+    "time_series_covid19_confirmed_global.csv",
+    "time_series_covid19_deaths_global.csv",
+    "time_series_covid19_confirmed_US.csv",
+    "time_series_covid19_deaths_US.csv"
+)
+urls <- str_c(url, file_names)
+raw_data_global_cases   <- readr::read_csv(urls[1])
+raw_data_global_deaths  <- readr::read_csv(urls[2])
+raw_data_us_cases       <- readr::read_csv(urls[3])
+raw_data_us_deaths      <- readr::read_csv(urls[4])
+```
+
+## Tidying Up the Data
+
+I tidy up the data by grabbing only state information, population and frequency of occurrences between cases and deaths.
+
+```{r tidy_data, echo = TRUE}
+# Tidy up the data
+us_cases <- raw_data_us_cases %>%
+    select(
+        -c(
+            UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Admin2,
+            Country_Region,
+            Lat,
+            Long_,
+            Combined_Key
+        )
+    ) %>%
+    rename(
+        State = Province_State
+    )
+
+us_death <- raw_data_us_deaths %>%
+    select(
+        -c(
+            UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Admin2,
+            Country_Region,
+            Lat,
+            Long_,
+            Combined_Key
+        )
+    ) %>%
+    rename(
+        State = Province_State
+    )
+
+# States are broken up by county.
+# I will combine all the counties together into state categories.
+us_cases_aggregate <- aggregate(. ~ State, us_cases, FUN = sum)
+us_death_aggregate <- aggregate(. ~ State, us_death, FUN = sum)
+
+
+# us_death has population
+
+# Convert into time series format
+us_death_pivot <- us_death_aggregate %>%
+    pivot_longer(
+        cols = -c(State, Population),
+        names_to = "dates"
+    ) %>%
+    mutate(
+        Dates       = mdy(dates),
+        New_Deaths  = value - lag(value)
+    ) %>%
+    filter(
+        New_Deaths >= 0
+    )
+
+us_case_pivot <- us_cases_aggregate %>%
+    pivot_longer(
+        cols = -c(State),
+        names_to = "dates"
+    ) %>%
+    mutate(
+        Dates       = mdy(dates),
+        New_Cases = value - lag(value)
+    ) %>%
+    filter(
+        New_Cases >= 0
+    )
+
+# Separate States into list
+state_cases <- us_case_pivot    %>% split(us_case_pivot$State)
+state_death <- us_death_pivot   %>% split(us_death_pivot$State)
+```
+
+I add in new columns called New_Cases and New_Death respectively. This is because aggregate growths lose their effectiveness in communicating the COVID-19 situation, as discussed in the Week 3 lecture.
+
+I am mainly interested in looking at data in California, which is where I am from.
+
+```{r tidy_california, echo = TRUE}
+
+# Pull California
+california_cases <- state_cases$California %>% select(-c(value, dates, State))
+california_death <- state_death$California %>% select(-c(value, dates, State))
+california <- merge(california_cases, california_death, all = TRUE)
+
+# Measurements normalized to population
+california <- california %>%
+    filter(
+        !is.na(New_Cases) & !is.na(New_Deaths)
+    ) %>%
+    mutate(
+        New_Cases_10000 = New_Cases  / Population * 10000,
+        New_Death_10000 = New_Deaths / Population * 10000
+    )
+```
+
+I combine the cases and deaths data, while filtering out any rows that do not have valid datapoints.
+
+### Base Plotting
+
+I first plot out the new cases and new deaths.
+
+```{r base_plotting, echo = TRUE}
+ggplot(NULL) +
+    geom_line(
+        data = california,
+        aes(
+            x = Dates,
+            y = New_Cases,
+            color = "New_Cases"
+        )
+    ) +
+    ggtitle("Figure 1: Covid-19 New Cases in California") +
+    xlab("Date") +
+    ylab(NULL)
+
+ggplot(NULL) +
+    geom_line(
+        data = california,
+        aes(
+            x = Dates,
+            y = New_Deaths,
+            color = "New_Deaths"
+        )
+    ) +
+    scale_y_log10() +
+    ggtitle("Figure 2: Covid-19 New Deaths in California") +
+    xlab("Date") +
+    ylab(NULL)
+
+```
+
+Here you can see something quite interesting about what happened in California. In Figure 1, the number of new cases began to grow substantially in the latter half of 2021. This was well after the rollout of the vaccinations in California and during lockdown. The deaths in Figure 2 appear to follow the same trend.
+
+The lockdowns and mask mandates started to ease in the beginning half of 2021, which does follow the trend of new cases. One would assume that restrictions should ease when the data indicates less issues within the population. New deaths appear to be stable.
+
+Then during the summer of 2021, the US Federal and Californian administration started issuing vaccine mandates to companies with compliance set before the end of 2021. Yet, even after 2022 well after the mandate there was a major spike in new cases.
+
+What was surprising was that new deaths do not appear to correlate after 2022. The number of new deaths do not change even after the spike and subsequent drop in new cases. It would be interesting to compare this data with the vaccination and booster rates to see if there were any significant impacts.
+
+```{r next_plots, echo = TRUE}
+ggplot(NULL) +
+    geom_line(
+        data = california,
+        aes(
+            x = Dates,
+            y = New_Cases,
+            color = "New_Cases"
+        )
+    ) +
+    geom_line(
+        data = california,
+        aes(
+            x = Dates,
+            y = New_Deaths,
+            color = "New_Deaths"
+        )
+    ) +
+    scale_y_log10() +
+    ggtitle("Figure 3: Covid-19 in California Comparison") +
+    xlab("Date") +
+    ylab(NULL)
+
+```
+
+Here are the new cases and new deaths superimposed on the same plot with the Y-Axis set as a logarithmic scale. One can see that the graphs follow each other until 2022.
+
+### Isolate by Counties
+
+California is an incredibly large state. It is filled with dense cities and empty rural towns.
+
+I decided to investigate deeper into how the counties were fairing with COVID-19.
+
+```{r counties, echo = TRUE}
+cases_counties <- raw_data_us_cases %>%
+    filter(
+        Province_State == "California"
+    ) %>%
+    select(
+        -c(
+            UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Country_Region,
+            Lat,
+            Long_,
+            Combined_Key,
+            Province_State
+        )
+    ) %>%
+    rename(
+        County = Admin2
+    )
+
+death_counties <- raw_data_us_deaths %>%
+    filter(
+        Province_State == "California"
+    ) %>%
+    select(
+        -c(
+            UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Country_Region,
+            Lat,
+            Long_,
+            Combined_Key,
+            Province_State
+        )
+    ) %>%
+    rename(
+        County = Admin2
+    )
+
+deaths <- death_counties[, c(1, 2, ncol(death_counties))] %>%
+    rename(
+        Total_Death = colnames(death_counties)[length(death_counties)]
+    )
+
+counties <- cases_counties[, c(1, ncol(cases_counties))] %>%
+    rename(
+        Total_Cases = colnames(cases_counties)[length(cases_counties)]
+    )
+
+counties <- merge(counties, deaths, all = TRUE)
+
+linear_model <- lm(Total_Death ~ Total_Cases, counties)
+summary(linear_model)
+
+counties <- counties %>%
+    mutate(
+        Prediction = predict(linear_model)
+    )
+
+ggplot(NULL) +
+    geom_point(
+        data = counties,
+        aes(
+            x = Total_Cases,
+            y = Total_Death
+        )
+    ) +
+    geom_point(
+        data = counties,
+        aes(
+            x = Total_Cases,
+            y = Prediction
+        ),
+        color = "red"
+    ) +
+    scale_x_log10() +
+    scale_y_log10() +
+    ggtitle("Figure 4: Covid-19 Counties in California") +
+    xlab("Total Cases") +
+    ylab("Total Deaths")
+```
+
+Note that the scatter plot has been adjusted to be logarithmic to expand the clusters of less populated counties. There are many counties in California that have few population, so higher variance between cases and deaths is expected.
+
+Linear Regression Model Output:
+
+```{r model_output, echo = TRUE}
+# summary(linear_model)
+
+# Call:
+# lm(formula = Total_Death ~ Total_Cases, data = counties)
+# Residuals:
+#     Min      1Q  Median      3Q     Max
+# -3650.4    13.9   139.2   176.1  1712.9
+
+# Coefficients:
+#               Estimate Std. Error t value Pr(>|t|)      
+# (Intercept) -1.715e+02  9.227e+01  -1.859   0.0682 .    
+# Total_Cases  9.578e-03  1.871e-04  51.183   <2e-16 ***  
+# ---
+# Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+# Residual standard error: 664.5 on 58 degrees of freedom 
+# Multiple R-squared:  0.9783,    Adjusted R-squared:  0.978
+# F-statistic:  2620 on 1 and 58 DF,  p-value: < 2.2e-16
+```
+
+In terms of the counties, it appears that the total number of cases are a predictor of the total number of deaths. The R-squared value being 0.98 indidcates that the linear model used was statistically significant.
+
+This is most intriguing considering the previous Figures 1-3. Figure 4 might indicate that if the variations are smoothened then there could be a clearer determinate between new cases and new deaths observed. However, there are clearly many factors that lead into the determination of whether or not a positive case leads to a death.
+
+COVID-19 is most certainly a highly impacting scenario. The investigations from above sheds some light into the events of California. It is important for administrators and the public to understand whether or not certain policies would have any effect.
+
+# Biases and Conclusions
+
+This data is inherently incomplete. As stated in the previous analysis, there were a lot of administrative and political circumstances that drove the population of California for the past two years.
+
+On top of that, the data itself might not be entirely representative of reality. How the data was collected is not known, and how well it represents the total population is not well known either.
+
+For example, in rural counties there are some that contain no COVID-19 related deaths. This could very well be the case, or the lack of medical and administrative outreach could entirely miss the collection of that data.
+
+It would be interesting to see how population density might affect the data as well as vaccination rates.
+
+Regardless, seeing that the death rates are mostly stagnant, one can only hope that we are beyond the crisis that was COVID-19.
